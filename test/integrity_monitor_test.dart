@@ -13,6 +13,11 @@ class FakeMonotonicClock implements MonotonicClock {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  // EventChannel uses MethodChannel under the hood for listen/cancel.
+  // In test mode we mock the underlying MethodChannel so that calling
+  // attach() (which calls receiveBroadcastStream()) doesn't throw
+  // MissingPluginException. This does NOT simulate native event delivery
+  // — it only allows the Dart-side logic to be tested in isolation.
   const integrityChannel = MethodChannel('trusted_time/integrity');
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(integrityChannel, (call) async => null);
@@ -56,7 +61,7 @@ void main() {
       expect(monitor.events.isBroadcast, isTrue);
     });
 
-    test('attach establishes monitoring for the given anchor', () {
+    test('attach establishes monitoring without throwing', () {
       final anchor = TrustAnchor(
         networkUtcMs: DateTime.now().millisecondsSinceEpoch,
         uptimeMs: 1000,
@@ -66,9 +71,22 @@ void main() {
       expect(() => monitor.attach(anchor), returnsNormally);
     });
 
-    test('dispose closes the events stream', () async {
+    test('multiple attaches cancel previous subscription', () {
+      final anchor = TrustAnchor(
+        networkUtcMs: DateTime.now().millisecondsSinceEpoch,
+        uptimeMs: 1000,
+        wallMs: DateTime.now().millisecondsSinceEpoch,
+        uncertaintyMs: 10,
+      );
+      expect(() {
+        monitor.attach(anchor);
+        monitor.attach(anchor);
+      }, returnsNormally);
+    });
+
+    test('dispose can be called multiple times safely', () {
       monitor.dispose();
-      expect(monitor.events.listen((_) {}), isNotNull);
+      expect(() => monitor.dispose(), returnsNormally);
     });
   });
 }

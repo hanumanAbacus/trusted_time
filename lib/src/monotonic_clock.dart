@@ -27,6 +27,15 @@ final class PlatformMonotonicClock implements MonotonicClock {
 ///
 /// Uses Dart's [Stopwatch] (backed by the OS monotonic clock) so that
 /// elapsed-time measurement is immune to system clock manipulation.
+///
+/// **Design note**: [SyncClock] uses Dart's [Stopwatch] for elapsed-time
+/// tracking, while [PlatformMonotonicClock] uses native kernel timers
+/// (`SystemClock.elapsedRealtime`, `ProcessInfo.systemUptime`, etc.).
+/// Both are monotonic clocks but from different sources. The [Stopwatch]
+/// does not count time spent in deep sleep on some platforms, but this
+/// is acceptable because the anchor is refreshed periodically and after
+/// reboots. The key guarantee is that [Stopwatch] cannot be manipulated
+/// by changing the system clock.
 final class SyncClock {
   SyncClock._();
 

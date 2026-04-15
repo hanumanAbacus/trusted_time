@@ -20,15 +20,12 @@ class TrustedTimePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         context = binding.applicationContext
 
-        // Channel for synchronous hardware-clock queries.
         methodChannel = MethodChannel(binding.binaryMessenger, "trusted_time/monotonic")
         methodChannel.setMethodCallHandler(this)
 
-        // Channel for scheduling background work.
         backgroundChannel = MethodChannel(binding.binaryMessenger, "trusted_time/background")
         backgroundChannel.setMethodCallHandler(this)
 
-        // Stream for broadcasting temporal integrity violations.
         integrityChannel = EventChannel(binding.binaryMessenger, "trusted_time/integrity")
         integrityChannel.setStreamHandler(object : EventChannel.StreamHandler {
             override fun onListen(args: Any?, sink: EventChannel.EventSink) =
@@ -39,7 +36,7 @@ class TrustedTimePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
-            "getUptimeMs" -> result.success(SystemClock.elapsedRealtime()) // Returns kernel uptime.
+            "getUptimeMs" -> result.success(SystemClock.elapsedRealtime())
             "enableBackgroundSync" -> {
                 val hours = call.argument<Int>("intervalHours") ?: 24
                 scheduleBackgroundSync(hours.toLong())
@@ -49,7 +46,6 @@ class TrustedTimePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         }
     }
 
-    /** Dispatches a recurring WorkManager job for anchor refreshing. */
     private fun scheduleBackgroundSync(intervalHours: Long) {
         val request = PeriodicWorkRequestBuilder<BackgroundSyncWorker>(intervalHours, TimeUnit.HOURS)
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
@@ -66,9 +62,12 @@ class TrustedTimePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
 }
 
 /**
- * Background worker that performs a lightweight HTTPS Date-header check to
- * pre-warm the clock offset for the next Dart-side sync. Stores the result
- * in SharedPreferences so TrustedTime can detect large drifts on cold start.
+ * Background worker that performs a lightweight HTTPS HEAD check to validate
+ * connectivity and confirm the device can reach time servers. The actual clock
+ * drift correction happens on the Dart side during the next foreground sync.
+ *
+ * The worker's primary purpose is to keep the WorkManager schedule alive and
+ * ensure network availability for the Dart engine's next sync cycle.
  */
 class BackgroundSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
     override suspend fun doWork(): Result {
@@ -79,16 +78,7 @@ class BackgroundSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWo
             conn.connectTimeout = 5000
             conn.readTimeout = 5000
             conn.connect()
-            val serverDate = conn.date
             conn.disconnect()
-            if (serverDate > 0) {
-                val driftMs = System.currentTimeMillis() - serverDate
-                applicationContext.getSharedPreferences("trusted_time", Context.MODE_PRIVATE)
-                    .edit()
-                    .putLong("bg_drift_ms", driftMs)
-                    .putLong("bg_check_at", System.currentTimeMillis())
-                    .apply()
-            }
             Result.success()
         } catch (_: Exception) {
             Result.retry()

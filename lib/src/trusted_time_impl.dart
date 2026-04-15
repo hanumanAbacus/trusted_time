@@ -177,6 +177,10 @@ final class TrustedTimeImpl {
         _trusted = false;
         _performSync();
       }
+      // timezoneChanged does NOT invalidate trust or trigger resync:
+      // UTC timestamps (the engine's output) are timezone-independent.
+      // The event is still emitted on the onIntegrityLost stream so
+      // consumers can react (e.g. update local-time displays).
     });
   }
 

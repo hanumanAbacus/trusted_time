@@ -38,3 +38,15 @@ jobs:
 
       - name: Run tests
         run: flutter test
+
+      - name: Analyze example app
+        working-directory: example
+        run: |
+          flutter pub get
+          flutter analyze --fatal-infos
+
+      # Native C++/C tests (Linux gtest, Windows gtest) are not built here.
+      # They require the example app's build artifacts and platform toolchains.
+      # To run them locally:
+      #   cd example && flutter build linux
+      #   ./build/linux/x64/debug/plugins/trusted_time/trusted_time_test

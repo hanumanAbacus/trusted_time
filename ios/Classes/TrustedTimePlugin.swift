@@ -20,6 +20,7 @@ public class TrustedTimePlugin: NSObject, FlutterPlugin {
     private var clockObservers: [NSObjectProtocol] = []
     private let bgTaskId = "com.trustedtime.backgroundsync"
     private var bgRegistered = false
+    private var bgIntervalHours = 24
 
     public static func register(with registrar: FlutterPluginRegistrar) {
         let instance = TrustedTimePlugin()
@@ -40,7 +41,8 @@ public class TrustedTimePlugin: NSObject, FlutterPlugin {
             result(Int64(ProcessInfo.processInfo.systemUptime * 1000))
         case "enableBackgroundSync":
             let hours = (call.arguments as? [String: Any])?["intervalHours"] as? Int ?? 24
-            registerBgSync(intervalHours: hours)
+            bgIntervalHours = hours
+            registerBgSync()
             result(nil)
         default:
             result(FlutterMethodNotImplemented)
@@ -48,25 +50,48 @@ public class TrustedTimePlugin: NSObject, FlutterPlugin {
     }
 
     /// Registers the BGAppRefreshTask once, then schedules the next execution.
-    ///
-    /// Apple requires `register(forTaskWithIdentifier:)` to be called only
-    /// during app launch. Subsequent calls replace the handler, which is
-    /// harmless but wasteful. The `bgRegistered` flag prevents redundant
-    /// registrations.
-    private func registerBgSync(intervalHours: Int) {
+    /// The interval is read from [bgIntervalHours] so subsequent calls to
+    /// `enableBackgroundSync` with different intervals take effect in the
+    /// handler closure.
+    private func registerBgSync() {
         if !bgRegistered {
             BGTaskScheduler.shared.register(forTaskWithIdentifier: bgTaskId, using: nil) { [weak self] task in
-                self?.scheduleNextBgSync(hours: intervalHours)
-                task.setTaskCompleted(success: true)
+                guard let self = self else {
+                    task.setTaskCompleted(success: true)
+                    return
+                }
+                self.performBackgroundCheck(task: task)
             }
             bgRegistered = true
         }
-        scheduleNextBgSync(hours: intervalHours)
+        scheduleNextBgSync()
     }
 
-    private func scheduleNextBgSync(hours: Int) {
+    /// Performs a lightweight HTTPS HEAD check (parity with Android worker)
+    /// to validate connectivity, then schedules the next background refresh.
+    private func performBackgroundCheck(task: BGTask) {
+        let url = URL(string: "https://www.google.com")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "HEAD"
+        request.timeoutInterval = 10
+
+        let dataTask = URLSession.shared.dataTask(with: request) { [weak self] _, _, _ in
+            self?.scheduleNextBgSync()
+            task.setTaskCompleted(success: true)
+        }
+
+        task.expirationHandler = {
+            dataTask.cancel()
+            self.scheduleNextBgSync()
+            task.setTaskCompleted(success: false)
+        }
+
+        dataTask.resume()
+    }
+
+    private func scheduleNextBgSync() {
         let req = BGAppRefreshTaskRequest(identifier: bgTaskId)
-        req.earliestBeginDate = Date(timeIntervalSinceNow: Double(hours) * 3600)
+        req.earliestBeginDate = Date(timeIntervalSinceNow: Double(bgIntervalHours) * 3600)
         try? BGTaskScheduler.shared.submit(req)
     }
 }
