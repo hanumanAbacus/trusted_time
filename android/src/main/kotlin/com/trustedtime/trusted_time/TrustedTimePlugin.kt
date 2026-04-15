@@ -33,7 +33,7 @@ class TrustedTimePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
         integrityChannel.setStreamHandler(object : EventChannel.StreamHandler {
             override fun onListen(args: Any?, sink: EventChannel.EventSink) =
                 IntegrityWatcher.attach(context, sink)
-            override fun onCancel(args: Any?) = IntegrityWatcher.detach()
+            override fun onCancel(args: Any?) = IntegrityWatcher.detach(context)
         })
     }
 
@@ -61,7 +61,7 @@ class TrustedTimePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         methodChannel.setMethodCallHandler(null)
         backgroundChannel.setMethodCallHandler(null)
-        IntegrityWatcher.detach()
+        IntegrityWatcher.detach(context)
     }
 }
 

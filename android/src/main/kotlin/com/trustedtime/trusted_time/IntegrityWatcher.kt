@@ -47,7 +47,10 @@ object IntegrityWatcher {
     }
 
     /** Cleans up the background receiver. */
-    fun detach() {
+    fun detach(context: Context) {
+        receiver?.let {
+            try { context.unregisterReceiver(it) } catch (_: Exception) {}
+        }
         receiver = null
         sink = null
     }
