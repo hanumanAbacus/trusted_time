@@ -33,36 +33,43 @@ final class PlatformMonotonicClock implements MonotonicClock {
 /// In-memory cache enabling sub-microsecond synchronous access to trusted
 /// time.
 ///
-/// [SyncClock] stores the wall-clock and uptime baselines from the most
-/// recent synchronization. The [TrustedTimeImpl.now] method uses these
-/// cached values to compute the current trusted time without any I/O:
+/// [SyncClock] stores the monotonic baseline from the most recent
+/// synchronization. The [TrustedTimeImpl.now] method uses these cached
+/// values to compute the current trusted time without any I/O:
 ///
 /// ```
-/// trustedNow = anchor.networkUtcMs + (DateTime.now() - cachedWallMs)
+/// trustedNow = anchor.networkUtcMs + _stopwatch.elapsedMilliseconds
 /// ```
 ///
-/// This design ensures `TrustedTime.now()` completes in <1µs.
+/// Uses Dart's [Stopwatch] (backed by the OS monotonic clock) so that
+/// elapsed-time measurement is immune to system clock manipulation.
 final class SyncClock {
   SyncClock._();
 
   static int _cachedUptimeMs = 0;
   static int _cachedWallMs = 0;
+  static final Stopwatch _stopwatch = Stopwatch();
 
-  /// Atomically updates the cache from a freshly established anchor.
+  /// Atomically updates the cache from a freshly established anchor and
+  /// restarts the monotonic stopwatch.
   static void update(int uptimeMs, int wallMs) {
     _cachedUptimeMs = uptimeMs;
     _cachedWallMs = wallMs;
+    _stopwatch.reset();
+    _stopwatch.start();
   }
 
-  /// Returns the elapsed wall-clock milliseconds since the last sync.
-  ///
-  /// This is the delta added to the anchor's [networkUtcMs] to compute
-  /// the current trusted time.
-  static int elapsedSinceAnchorMs() =>
-      DateTime.now().millisecondsSinceEpoch - _cachedWallMs;
+  /// Returns the elapsed milliseconds since the last sync, measured via
+  /// Dart's monotonic [Stopwatch] — immune to wall-clock tampering.
+  static int elapsedSinceAnchorMs() => _stopwatch.elapsedMilliseconds;
 
   /// The uptime baseline recorded during the last successful sync.
   ///
   /// Used by [IntegrityMonitor] to detect device reboots.
   static int get lastUptimeMs => _cachedUptimeMs;
+
+  /// The wall-clock baseline recorded during the last successful sync.
+  ///
+  /// Used by [nowEstimated] for offline degraded-confidence estimation.
+  static int get lastWallMs => _cachedWallMs;
 }

@@ -65,7 +65,33 @@ class TrustedTimePlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
     }
 }
 
-/** Silent background worker shell for OS-level sync tasks. */
+/**
+ * Background worker that performs a lightweight HTTPS Date-header check to
+ * pre-warm the clock offset for the next Dart-side sync. Stores the result
+ * in SharedPreferences so TrustedTime can detect large drifts on cold start.
+ */
 class BackgroundSyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
-    override suspend fun doWork(): Result = Result.success()
+    override suspend fun doWork(): Result {
+        return try {
+            val url = java.net.URL("https://www.google.com")
+            val conn = url.openConnection() as java.net.HttpURLConnection
+            conn.requestMethod = "HEAD"
+            conn.connectTimeout = 5000
+            conn.readTimeout = 5000
+            conn.connect()
+            val serverDate = conn.date
+            conn.disconnect()
+            if (serverDate > 0) {
+                val driftMs = System.currentTimeMillis() - serverDate
+                applicationContext.getSharedPreferences("trusted_time", Context.MODE_PRIVATE)
+                    .edit()
+                    .putLong("bg_drift_ms", driftMs)
+                    .putLong("bg_check_at", System.currentTimeMillis())
+                    .apply()
+            }
+            Result.success()
+        } catch (_: Exception) {
+            Result.retry()
+        }
+    }
 }
